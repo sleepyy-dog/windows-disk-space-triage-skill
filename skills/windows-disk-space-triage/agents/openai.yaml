@@ -1,0 +1,4 @@
+interface:
+  display_name: "Windows Disk Space Triage"
+  short_description: "Diagnose Windows disk pressure before cleanup"
+  default_prompt: "Analyze Windows disk space pressure and recommend safe next actions."
