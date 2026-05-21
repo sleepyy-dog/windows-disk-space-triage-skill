@@ -1,7 +1,7 @@
 [CmdletBinding()]
 param(
     [string]$Drive = "C:",
-    [int]$Days = 7,
+    [string[]]$Days = @("3", "7", "30"),
     [int]$Top = 20,
     [int]$GroupDepth = 3,
     [int]$MaxFilesToScan = 500000,
@@ -15,7 +15,7 @@ param(
 Set-StrictMode -Version 3.0
 $ErrorActionPreference = "Continue"
 
-$script:ToolVersion = "0.2.0"
+$script:ToolVersion = "0.3.0"
 
 function ConvertTo-DriveRoot {
     param([string]$InputDrive)
@@ -247,6 +247,7 @@ function Get-SecuritySignal {
 
     return [pscustomobject]@{
         Path = $full
+        SizeBytes = $File.Length
         SizeMB = ConvertTo-Mib $File.Length
         Created = $File.CreationTime
         Modified = $File.LastWriteTime
@@ -395,7 +396,40 @@ if ($DeepScan) {
     $MaxFilesToScan = [int]::MaxValue
 }
 
-$cutoff = (Get-Date).AddDays(-1 * $Days)
+$parsedWindows = New-Object System.Collections.Generic.List[int]
+foreach ($dayInput in @($Days)) {
+    if ([string]::IsNullOrWhiteSpace($dayInput)) {
+        continue
+    }
+
+    foreach ($part in ([string]$dayInput -split ",")) {
+        $candidate = $part.Trim()
+        $parsed = 0
+        if ([int]::TryParse($candidate, [ref]$parsed) -and $parsed -gt 0) {
+            $parsedWindows.Add($parsed) | Out-Null
+        }
+    }
+}
+
+$dayWindows = @($parsedWindows | Sort-Object -Unique)
+if ($dayWindows.Count -eq 0) {
+    $dayWindows = @(3, 7, 30)
+}
+
+$now = Get-Date
+$windowStates = [ordered]@{}
+foreach ($dayWindow in $dayWindows) {
+    $windowStates[[string]$dayWindow] = [ordered]@{
+        Days = [int]$dayWindow
+        Cutoff = $now.AddDays(-1 * [int]$dayWindow)
+        CreatedMap = @{}
+        ModifiedMap = @{}
+        CreatedFiles = New-Object System.Collections.Generic.List[object]
+        ModifiedFiles = New-Object System.Collections.Generic.List[object]
+        SecuritySignals = New-Object System.Collections.Generic.List[object]
+    }
+}
+
 $baseline = Get-DriveBaseline -DriveRoot $driveRoot
 $snapshotFile = Get-SnapshotFilePath -DriveRoot $driveRoot -RequestedPath $SnapshotPath
 $previousSnapshots = @(Read-Snapshots -Path $snapshotFile)
@@ -405,12 +439,7 @@ if ($previousSnapshots.Length -gt 0) {
 }
 
 $topLevelMap = @{}
-$createdMap = @{}
-$modifiedMap = @{}
 $categoryMap = @{}
-$createdFiles = New-Object System.Collections.Generic.List[object]
-$modifiedFiles = New-Object System.Collections.Generic.List[object]
-$securitySignals = New-Object System.Collections.Generic.List[object]
 
 $filesScanned = 0
 $truncated = $false
@@ -433,35 +462,39 @@ foreach ($filePath in (Get-EnumerableFiles -Root $driveRoot)) {
         $category = Get-PathCategory -Path $file.FullName
         Add-BytesToMap -Map $categoryMap -Key $category -Bytes $file.Length
 
-        if ($file.CreationTime -ge $cutoff) {
-            $group = Get-GroupPath -Path $file.DirectoryName -Root $driveRoot -Depth $GroupDepth
-            Add-BytesToMap -Map $createdMap -Key $group -Bytes $file.Length
-            $createdFiles.Add([pscustomobject]@{
-                Path = $file.FullName
-                SizeGB = ConvertTo-Gib $file.Length
-                SizeMB = ConvertTo-Mib $file.Length
-                Created = $file.CreationTime
-                Category = $category
-                Recommendation = Get-Recommendation -Path $file.FullName -Category $category -DriveRoot $driveRoot
-            }) | Out-Null
-        }
+        foreach ($state in $windowStates.Values) {
+            if ($file.CreationTime -ge $state.Cutoff) {
+                $group = Get-GroupPath -Path $file.DirectoryName -Root $driveRoot -Depth $GroupDepth
+                Add-BytesToMap -Map $state.CreatedMap -Key $group -Bytes $file.Length
+                $state.CreatedFiles.Add([pscustomobject]@{
+                    Path = $file.FullName
+                    SizeBytes = $file.Length
+                    SizeGB = ConvertTo-Gib $file.Length
+                    SizeMB = ConvertTo-Mib $file.Length
+                    Created = $file.CreationTime
+                    Category = $category
+                    Recommendation = Get-Recommendation -Path $file.FullName -Category $category -DriveRoot $driveRoot
+                }) | Out-Null
+            }
 
-        if ($file.LastWriteTime -ge $cutoff) {
-            $group = Get-GroupPath -Path $file.DirectoryName -Root $driveRoot -Depth $GroupDepth
-            Add-BytesToMap -Map $modifiedMap -Key $group -Bytes $file.Length
-            $modifiedFiles.Add([pscustomobject]@{
-                Path = $file.FullName
-                SizeGB = ConvertTo-Gib $file.Length
-                SizeMB = ConvertTo-Mib $file.Length
-                Modified = $file.LastWriteTime
-                Category = $category
-                Recommendation = Get-Recommendation -Path $file.FullName -Category $category -DriveRoot $driveRoot
-            }) | Out-Null
-        }
+            if ($file.LastWriteTime -ge $state.Cutoff) {
+                $group = Get-GroupPath -Path $file.DirectoryName -Root $driveRoot -Depth $GroupDepth
+                Add-BytesToMap -Map $state.ModifiedMap -Key $group -Bytes $file.Length
+                $state.ModifiedFiles.Add([pscustomobject]@{
+                    Path = $file.FullName
+                    SizeBytes = $file.Length
+                    SizeGB = ConvertTo-Gib $file.Length
+                    SizeMB = ConvertTo-Mib $file.Length
+                    Modified = $file.LastWriteTime
+                    Category = $category
+                    Recommendation = Get-Recommendation -Path $file.FullName -Category $category -DriveRoot $driveRoot
+                }) | Out-Null
+            }
 
-        $signal = Get-SecuritySignal -File $file -Cutoff $cutoff -IncludeSignature:$IncludeSignatureCheck
-        if ($null -ne $signal) {
-            $securitySignals.Add($signal) | Out-Null
+            $signal = Get-SecuritySignal -File $file -Cutoff $state.Cutoff -IncludeSignature:$IncludeSignatureCheck
+            if ($null -ne $signal) {
+                $state.SecuritySignals.Add($signal) | Out-Null
+            }
         }
     }
     catch {
@@ -471,12 +504,22 @@ foreach ($filePath in (Get-EnumerableFiles -Root $driveRoot)) {
 
 $elapsed = (Get-Date) - $startedAt
 $topDirectories = Convert-MapToRows -Map $topLevelMap -Limit $Top
-$recentCreatedGroups = Convert-MapToRows -Map $createdMap -Limit $Top
-$recentModifiedGroups = Convert-MapToRows -Map $modifiedMap -Limit $Top
 $categoryRows = Convert-MapToRows -Map $categoryMap -Limit $Top
-$topCreatedFiles = @($createdFiles | Sort-Object -Property SizeGB -Descending | Select-Object -First $Top)
-$topModifiedFiles = @($modifiedFiles | Sort-Object -Property SizeGB -Descending | Select-Object -First $Top)
-$topSecuritySignals = @($securitySignals | Sort-Object -Property SizeMB -Descending | Select-Object -First $Top)
+$recentWindows = @(
+    foreach ($dayWindow in $dayWindows) {
+        $state = $windowStates[[string]$dayWindow]
+        [pscustomobject]@{
+            Days = $state.Days
+            Label = "last $($state.Days) days"
+            Cutoff = $state.Cutoff
+            RecentCreatedGroups = Convert-MapToRows -Map $state.CreatedMap -Limit $Top
+            RecentModifiedGroups = Convert-MapToRows -Map $state.ModifiedMap -Limit $Top
+            TopRecentCreatedFiles = @($state.CreatedFiles | Sort-Object -Property SizeBytes -Descending | Select-Object -First $Top)
+            TopRecentModifiedFiles = @($state.ModifiedFiles | Sort-Object -Property SizeBytes -Descending | Select-Object -First $Top)
+            SecuritySignals = @($state.SecuritySignals | Sort-Object -Property SizeBytes -Descending | Select-Object -First $Top)
+        }
+    }
+)
 
 $snapshotDelta = $null
 if ($null -ne $previousSnapshot) {
@@ -506,8 +549,7 @@ $result = [pscustomobject]@{
     ToolVersion = $script:ToolVersion
     GeneratedAt = (Get-Date).ToString("o")
     Drive = $driveRoot
-    WindowDays = $Days
-    Cutoff = $cutoff
+    WindowDays = $dayWindows
     Baseline = $baseline
     Scan = [pscustomobject]@{
         FilesScanned = $filesScanned
@@ -524,11 +566,7 @@ $result = [pscustomobject]@{
     Defender = Get-DefenderSummary
     TopDirectories = $topDirectories
     CategorySummary = $categoryRows
-    RecentCreatedGroups = $recentCreatedGroups
-    RecentModifiedGroups = $recentModifiedGroups
-    TopRecentCreatedFiles = $topCreatedFiles
-    TopRecentModifiedFiles = $topModifiedFiles
-    SecuritySignals = $topSecuritySignals
+    RecentWindows = $recentWindows
     SecurityNote = "Security signals are suspicious indicators only. They do not prove malware. Use Microsoft Defender or another trusted scanner for verdicts."
 }
 
@@ -539,7 +577,7 @@ if ($Json) {
 
 Write-Host "Windows Disk Space Triage"
 Write-Host "Drive: $driveRoot"
-Write-Host "Window: last $Days days, cutoff $cutoff"
+Write-Host "Time windows: $($dayWindows -join ', ') days"
 Write-Host "Free: $($baseline.FreeGB) GB / $($baseline.SizeGB) GB ($($baseline.FreePercent)%)"
 Write-Host "Scanned files: $filesScanned in $([Math]::Round($elapsed.TotalSeconds, 2))s"
 if ($truncated) {
@@ -558,11 +596,14 @@ elseif ($SaveSnapshot) {
 
 Format-SectionRows -Title "Top current directories from scanned files" -Rows $topDirectories
 Format-SectionRows -Title "Category summary from scanned files" -Rows $categoryRows
-Format-SectionRows -Title "Recent created groups" -Rows $recentCreatedGroups
-Format-SectionRows -Title "Recent modified groups" -Rows $recentModifiedGroups
-Format-SectionRows -Title "Largest recently created files" -Rows $topCreatedFiles
-Format-SectionRows -Title "Largest recently modified files" -Rows $topModifiedFiles
-Format-SectionRows -Title "Security review signals" -Rows $topSecuritySignals
+
+foreach ($window in $recentWindows) {
+    Format-SectionRows -Title "Created groups - $($window.Label)" -Rows $window.RecentCreatedGroups
+    Format-SectionRows -Title "Modified groups - $($window.Label)" -Rows $window.RecentModifiedGroups
+    Format-SectionRows -Title "Largest created files - $($window.Label)" -Rows $window.TopRecentCreatedFiles
+    Format-SectionRows -Title "Largest modified files - $($window.Label)" -Rows $window.TopRecentModifiedFiles
+    Format-SectionRows -Title "Security review signals - $($window.Label)" -Rows $window.SecuritySignals
+}
 
 Write-Host ""
 Write-Host "Security note: suspicious signals are not a malware verdict. Use Defender or another trusted scanner for confirmation."

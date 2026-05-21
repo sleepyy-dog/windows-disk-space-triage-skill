@@ -35,18 +35,18 @@ The bundled script analyzes one Windows drive at a time and does not delete file
 
 ```powershell
 cd skills\windows-disk-space-triage
-.\scripts\Analyze-WindowsDiskSpace.ps1 -Drive C: -Days 7 -Top 20
+.\scripts\Analyze-WindowsDiskSpace.ps1 -Drive C: -Top 20
 ```
 
 Useful options:
 
 - `-Drive C:` or `-Drive D:`: choose the drive.
-- `-Days 7`: recent file window.
+- `-Days "3,7,30"`: time windows to report. Defaults to 3, 7, and 30 days.
 - `-Json`: output machine-readable JSON.
 - `-SaveSnapshot`: save a baseline for future growth comparisons.
 - `-IncludeSignatureCheck`: add Authenticode status for suspicious recent executable/script files.
 
-The script reports current usage, recent created/modified groups, large recent files, security review signals, and C/D-drive-specific recommendations. Security signals are not malware verdicts; use Microsoft Defender or another trusted scanner for confirmation.
+The script reports current usage, created/modified groups for each time window, large files per window, security review signals, and C/D-drive-specific recommendations. Security signals are not malware verdicts; use Microsoft Defender or another trusted scanner for confirmation.
 
 ## Skill Path
 

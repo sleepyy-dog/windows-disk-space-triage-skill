@@ -18,7 +18,7 @@ The goal is to answer three questions:
 Default posture:
 
 - Start read-only.
-- Default to `C:\` and the last 7 days unless the user specifies otherwise.
+- Default to `C:\` and the 3, 7, and 30 day windows unless the user specifies otherwise.
 - Do not delete, uninstall, move, compress, empty Recycle Bin, disable updates, or change environment variables without explicit user confirmation.
 - Treat "large", "recently modified", and "reclaimable" as different claims.
 - Be cautious with `C:\Windows`, `C:\Program Files`, `C:\Program Files (x86)`, and vendor-managed application folders.
@@ -31,10 +31,10 @@ This skill is for storage triage, not RAM/memory debugging unless the issue is p
 If available, start with the bundled read-only PowerShell script:
 
 ```powershell
-.\scripts\Analyze-WindowsDiskSpace.ps1 -Drive C: -Days 7 -Top 20
+.\scripts\Analyze-WindowsDiskSpace.ps1 -Drive C: -Top 20
 ```
 
-Use `-Json` for machine-readable output, `-SaveSnapshot` to create a baseline for future comparisons, and `-IncludeSignatureCheck` when reviewing recent executable/script files. The script never deletes files.
+Use `-Days "3,7,30"` to customize time windows, `-Json` for machine-readable output, `-SaveSnapshot` to create a baseline for future comparisons, and `-IncludeSignatureCheck` when reviewing recent executable/script files. The script never deletes files.
 
 1. Establish baseline.
 
@@ -59,9 +59,9 @@ Use `-Json` for machine-readable output, `-SaveSnapshot` to create a baseline fo
    - `C:\Program Files (x86)`
    - `C:\$Recycle.Bin`
 
-3. Identify recent change signals.
+3. Identify time-windowed change signals.
 
-   Aggregate files created or modified in the selected window by parent directory. Use this to find suspects, not as proof of net growth.
+   Aggregate files created or modified in each selected window by parent directory. Use 3 days, 7 days, and 30 days by default so the model can compare short-term spikes against longer-term patterns. Use this to find suspects, not as proof of net growth.
 
    Useful distinction:
 
