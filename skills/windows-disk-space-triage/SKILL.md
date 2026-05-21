@@ -28,6 +28,14 @@ This skill is for storage triage, not RAM/memory debugging unless the issue is p
 
 ## 2. Disk Analysis Workflow
 
+If available, start with the bundled read-only PowerShell script:
+
+```powershell
+.\scripts\Analyze-WindowsDiskSpace.ps1 -Drive C: -Days 7 -Top 20
+```
+
+Use `-Json` for machine-readable output, `-SaveSnapshot` to create a baseline for future comparisons, and `-IncludeSignatureCheck` when reviewing recent executable/script files. The script never deletes files.
+
 1. Establish baseline.
 
    Capture current drive capacity, free space, scan window, current user, and whether admin rights are available.
@@ -59,6 +67,7 @@ This skill is for storage triage, not RAM/memory debugging unless the issue is p
 
    - `CreationTime`: often better for newly downloaded/generated files.
    - `LastWriteTime`: useful for active caches, logs, databases, and updates, but can overstate growth.
+   - Snapshot delta: when a previous snapshot exists, this is closer to real disk growth than timestamps.
 
 4. Check known Windows pressure categories.
 
@@ -82,6 +91,7 @@ This skill is for storage triage, not RAM/memory debugging unless the issue is p
    - Confidence: high, medium, or low
    - Safe action
    - Risk or verification needed
+   - Security review signals, if present. These are not malware verdicts.
 
 6. Present the result before cleanup.
 

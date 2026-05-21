@@ -9,6 +9,7 @@
 - skill 定位与安全边界
 - 硬盘空间分析流程
 - 按风险分类的优化建议
+- 一个只读 PowerShell 脚本，用于按硬盘分析空间压力
 
 ## 安装
 
@@ -27,6 +28,25 @@ python ~/.codex/skills/.system/skill-installer/scripts/install-skill-from-github
 ```
 
 安装后重启 Codex，让新的 skill 被发现。
+
+## 脚本
+
+内置脚本按单个硬盘分析空间占用，不会删除文件：
+
+```powershell
+cd skills\windows-disk-space-triage
+.\scripts\Analyze-WindowsDiskSpace.ps1 -Drive C: -Days 7 -Top 20
+```
+
+常用参数：
+
+- `-Drive C:` 或 `-Drive D:`：选择硬盘。
+- `-Days 7`：最近文件窗口。
+- `-Json`：输出 JSON，便于后续自动分析。
+- `-SaveSnapshot`：保存本次快照，方便以后对比真实增长。
+- `-IncludeSignatureCheck`：对最近出现的可疑可执行文件/脚本附加签名状态。
+
+脚本会输出当前占用、最近创建/修改的目录聚合、最近大文件、安全可疑信号，以及 C/D 盘不同场景下的迁移或删除建议。安全可疑信号不等于病毒结论，最终仍需要 Microsoft Defender 或其他可信杀毒工具确认。
 
 ## Skill 路径
 
