@@ -1,5 +1,7 @@
 # Windows Disk Space Triage Skill
 
+[中文说明](README.zh-CN.md)
+
 A concise Codex skill for diagnosing Windows disk-space pressure before cleanup.
 
 It focuses on:
